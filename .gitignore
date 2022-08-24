@@ -7,3 +7,5 @@ credentials.json
 image/*.tiff
 .DS_Store
 /.vscode
+.gitsecret/keys/random_seed
+!*.secret
