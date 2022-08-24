@@ -6,16 +6,20 @@ from src.renderer import return_selectbox_result
 
 def get_project_list():
     """Get project list based on mysql tables in tomocube database"""
-
-    data_list = query_database(
-        """SELECT TABLE_NAME
-        FROM information_schema.TABLES
-        WHERE TABLE_SCHEMA = 'tomocube'
-        AND TABLE_NAME LIKE '%patient'"""
-    )
-    return [
-        data["TABLE_NAME"].replace("_patient", "") for data in data_list  # type: ignore
-    ]
+    results = []
+    with open("src/projects.txt", "r") as f:
+        lines = f.readlines()
+        results.extend(l.strip() for l in lines)
+    return results
+    # data_list = query_database(
+    #     """SELECT TABLE_NAME
+    #     FROM information_schema.TABLES
+    #     WHERE TABLE_SCHEMA = 'tomocube'
+    #     AND TABLE_NAME LIKE '%patient'"""
+    # )
+    # return [
+    #     data["TABLE_NAME"].replace("_patient", "") for data in data_list  # type: ignore
+    # ]
 
 
 class ProjectListRenderer:

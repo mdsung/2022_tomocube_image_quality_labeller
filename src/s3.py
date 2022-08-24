@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import boto3
-import tifffile
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -42,7 +41,7 @@ class S3Downloader:
     def __init__(self, bucket) -> None:
         self.bucket = bucket
 
-    def download(self, project_name: str, patient_name: str, image_name: str):
+    def download(self, patient_name: str, image_name: str):
         target_file_dict = {
             "brightfield": Path("image", "bf.tiff"),
             "mip": Path("image", "mip.tiff"),

@@ -7,9 +7,15 @@ from streamlit_custom_image_labeller import st_custom_image_labeller
 
 from src.cell_selector import render_cell_selector
 from src.database import Database, query_database
-from src.gdrive import GDriveCredential, GDriveDownloader
 from src.image import TomocubeImage, download_image, get_images
 from src.renderer import LabelProgressRenderer, TitleRenderer
+from src.s3 import (
+    AWS_KEY,
+    AWS_PASSWORD,
+    S3Credential,
+    S3Downloader,
+    get_s3_bucket,
+)
 from src.session import set_session_state
 
 
@@ -32,9 +38,9 @@ def set_default_point(
         image_size[1] // 2, image_size[2] // 2, image_size[0] // 2
     )
 
-    x = data[0].get("x", default_point.x) if data is not () else default_point.x
-    y = data[0].get("x", default_point.y) if data is not () else default_point.y
-    z = data[0].get("x", default_point.z) if data is not () else default_point.z
+    x = data[0].get("x", default_point.x) if data != () else default_point.x
+    y = data[0].get("y", default_point.y) if data != () else default_point.y
+    z = data[0].get("z", default_point.z) if data != () else default_point.z
 
     st.session_state["point"] = Point(x, y, z)
 
@@ -44,7 +50,7 @@ def render_center_labeller(image: np.ndarray):
 
     with col1:
         st.header("HT - XY")
-        logging.info(f"render col1 - {st.session_state['point']}")
+        logging.info(f"Render col1 - {st.session_state['point']}")
         output = st_custom_image_labeller(
             TomocubeImage.numpy_to_image(
                 TomocubeImage.slice_axis(
@@ -66,7 +72,7 @@ def render_center_labeller(image: np.ndarray):
 
     with col2:
         st.header("HT - YZ")
-        logging.info(f"render col2 - {st.session_state['point']}")
+        logging.info(f"Render col2 - {st.session_state['point']}")
         output2 = st_custom_image_labeller(
             TomocubeImage.numpy_to_image(
                 TomocubeImage.slice_axis(
@@ -120,7 +126,8 @@ def save_point(project_name):
 
 def _write_to_database(project_name, image_id, x, y, z):
     database = Database()
-    sql = f"INSERT INTO {project_name}_image_center (image_id, x, y, z) VALUES ({image_id}, {x}, {y}, {z}) ON DUPLICATE KEY UPDATE x = {x}, y = {y}, z = {z}"
+    sql = f"""INSERT INTO {project_name}_image_center (image_id, x, y, z) 
+            VALUES ({image_id}, {x}, {y}, {z}) ON DUPLICATE KEY UPDATE x = {x}, y = {y}, z = {z}"""
     database.execute_sql(sql)
     database.conn.commit()
     database.conn.close()
@@ -128,24 +135,29 @@ def _write_to_database(project_name, image_id, x, y, z):
 
 
 def app():
-    downloader = GDriveDownloader(GDriveCredential().credentials)
-    set_session_state(
-        "center_filter_labeled",
-        "center_project_name",
-        "center_patient_id",
-        "center_cell_type",
-        "center_cell_number",
-    )
-    st.session_state["center_filter_labeled"] = True
+    label_type = "center"
 
-    set_session_state("ht_image_meta_center", "ht_image")
+    st.session_state[f"{label_type}_filter_labeled"] = True
+    set_session_state(
+        f"{label_type}_project_name",
+        f"{label_type}_patient_id",
+        f"{label_type}_cell_type",
+        f"{label_type}_cell_number",
+        "ht_image",
+        "ht_image_meta_center",
+    )
 
     TitleRenderer("Tomocube Image Quality Labeller").render()
 
-    render_cell_selector(label_type="center")  # type: ignore
+    render_cell_selector(label_type=label_type)  # type: ignore
 
-    if (st.session_state["center_cell_type"] == "Not Available") | (
-        st.session_state["center_cell_number"] == "Not Available"
+    project_name = st.session_state[f"{label_type}_project_name"]
+    credential = S3Credential(AWS_KEY, AWS_PASSWORD)
+    bucket = get_s3_bucket(credential, project_name.replace("_", "-"))
+    downloader = S3Downloader(bucket)
+
+    if (st.session_state[f"{label_type}_cell_type"] == "Not Available") | (
+        st.session_state[f"{label_type}_cell_number"] == "Not Available"
     ):
         st.write("Not Available images")
         st.write(
@@ -153,20 +165,24 @@ def app():
         )
         return
 
-    _, _, ht = get_images(
-        st.session_state["center_project_name"],
-        st.session_state["center_patient_id"],
-        st.session_state["center_cell_type"],
-        st.session_state["center_cell_number"],
+    _, _, ht_cellimage = get_images(
+        st.session_state[f"{label_type}_project_name"],
+        st.session_state[f"{label_type}_patient_id"],
+        st.session_state[f"{label_type}_cell_type"],
+        st.session_state[f"{label_type}_cell_number"],
     )
 
-    if ht != st.session_state["ht_image_meta_center"]:
-        if ht is not None:
+    if ht_cellimage != st.session_state["ht_image_meta_center"]:
+        if ht_cellimage is not None:
+            logging.info("Download image")
             download_image(
-                downloader, ht.image_google_id, "image", "ht.tiff", "ht_image"
+                downloader,
+                ht_cellimage.patient_name,
+                ht_cellimage.image_name,
             )
-        st.session_state["ht_image_meta_center"] = ht
-    logging.info(st.session_state["ht_image_meta_center"])
+            st.session_state["ht_image_meta_center"] = ht_cellimage
+        else:
+            st.session_state["ht_image_meta_center"] = None
 
     if "point" not in st.session_state:
         set_default_point(
@@ -175,22 +191,26 @@ def app():
             st.session_state["ht_image"].shape,
         )
 
+    logging.info(f"point - {st.session_state['point']}")
+    logging.info(
+        f"ht_image_meta_center - {st.session_state['ht_image_meta_center']}"
+    )
     render_center_labeller(st.session_state["ht_image"])
 
-    st.write(
-        f"The coordinates of center point: ({st.session_state['point'].x}, {st.session_state['point'].y}, {st.session_state['point'].z})"
-    )
+    # st.write(
+    #     f"The coordinates of center point: ({st.session_state['point'].x}, {st.session_state['point'].y}, {st.session_state['point'].z})"
+    # )
 
-    st.button(
-        "Save Point",
-        on_click=save_point,
-        args=(st.session_state["center_project_name"],),
-    )
+    # st.button(
+    #     "Save Point",
+    #     on_click=save_point,
+    #     args=(st.session_state["center_project_name"],),
+    # )
 
-    if st.checkbox("Show all axis", value=False):
-        render_morphology_all_axis(st.session_state["ht_image"])
+    # if st.checkbox("Show all axis", value=False):
+    #     render_morphology_all_axis(st.session_state["ht_image"])
 
-    with st.sidebar:
-        LabelProgressRenderer(
-            st.session_state["center_project_name"], "center"
-        ).render()
+    # with st.sidebar:
+    #     LabelProgressRenderer(
+    #         st.session_state["center_project_name"], "center"
+    #     ).render()

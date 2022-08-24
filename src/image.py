@@ -22,12 +22,13 @@ class ImageType(Enum):
 @dataclass
 class CellImageMeta:
     image_id: int
-    image_google_id: str | None
+    image_name: str | None
     image_type: ImageType | None
     cell_type: str | None
     cell_number: int | None
     cell_id: int | None
     patient_id: int
+    patient_name: str | None
     quality: Optional[int]
 
     @classmethod
@@ -35,12 +36,13 @@ class CellImageMeta:
         data = query_database(
             f"""SELECT 
                     i.image_id,
-                    i.google_drive_file_id, 
+                    i.file_name, 
                     i.image_type, 
                     c.cell_type, 
                     c.cell_number, 
                     i.cell_id, 
                     i.patient_id,
+                    p.google_drive_parent_name,
                     q.quality
                 FROM (
                     SELECT * 
@@ -49,28 +51,44 @@ class CellImageMeta:
                 LEFT JOIN {project_name}_cell c
                 ON c.cell_id = i.cell_id
                 lEFT JOIN {project_name}_image_quality q
-                ON i.image_id = q.image_id"""
+                ON i.image_id = q.image_id
+                LEFT JOIN {project_name}_patient p
+                ON i.patient_id = p.patient_id"""
         )
         return CellImageMeta(
             image_id,
-            data[0].get("google_drive_file_id"),
+            data[0].get("file_name"),
             data[0].get("image_type"),
             data[0].get("cell_type"),
             data[0].get("cell_number"),
             data[0].get("cell_id"),
             data[0].get("patient_id"),
+            data[0].get("google_drive_parent_name"),
             data[0].get("quality", None),
         )
 
     @classmethod
     def from_cell_metadata(
-        cls, project_name, patient_id, cell_type, cell_number
+        cls,
+        project_name: str,
+        patient_id: int,
+        cell_type: str,
+        cell_number: int,
     ) -> list[CellImageMeta]:
         if (cell_type is None) | (cell_number is None):
             return []
 
         data = query_database(
-            f"""SELECT i.image_id, i.google_drive_file_id, i.image_type, c.cell_type, c.cell_number, c.cell_id, c.patient_id, q.quality
+            f"""SELECT 
+                    i.image_id, 
+                    i.file_name, 
+                    i.image_type, 
+                    c.cell_type, 
+                    c.cell_number, 
+                    c.cell_id, 
+                    c.patient_id, 
+                    p.google_drive_parent_name, 
+                    q.quality
                 FROM (SELECT *
                     FROM {project_name}_cell 
                     WHERE cell_type = '{cell_type}'
@@ -79,17 +97,20 @@ class CellImageMeta:
                 LEFT JOIN {project_name}_image i
                 ON i.cell_id = c.cell_id
                 LEFT JOIN {project_name}_image_quality q
-                ON i.image_id = q.image_id"""
+                ON i.image_id = q.image_id
+                LEFT JOIN {project_name}_patient p
+                ON i.patient_id = p.patient_id"""
         )
         return [
             CellImageMeta(
                 d.get("image_id"),
-                d.get("google_drive_file_id"),
+                d.get("file_name"),
                 d.get("image_type"),
                 cell_type,
                 cell_number,
                 d.get("cell_id"),
                 patient_id,
+                d.get("google_drive_parent_name"),
                 d.get("quality", None),
             )  # type: ignore
             for d in data
@@ -154,7 +175,7 @@ def find_cell_image_by_image_type(
 
 
 def get_images(
-    project_name, patient_id, cell_type, cell_number
+    project_name: str, patient_id: int, cell_type: str, cell_number: int
 ) -> tuple[
     Union[CellImageMeta, None],
     Union[CellImageMeta, None],
@@ -171,13 +192,20 @@ def get_images(
     return bf, mip, ht
 
 
-def download_image(
-    downloader, google_file_id, download_path, download_filename, key
-):
-    downloader.download(google_file_id, download_path, download_filename)
-    image_path = Path(download_path, download_filename)
-    if key == "bf_image":
-        st.session_state[key] = BFImage(image_path).process()
-    elif (key == "mip_image") | (key == 'ht_image'):
-        st.session_state[key] = TomocubeImage(image_path).process()
-    
+def download_image(downloader, patient_name, image_name):
+    downloader.download(patient_name, image_name)
+
+    if "brightfield" in image_name.lower():
+        image_path = Path("image", "bf.tiff")
+        st.session_state["bf_image"] = BFImage(image_path).process()
+
+    elif "mip" in image_name.lower():
+        image_path = Path("image", "mip.tiff")
+        st.session_state["mip_image"] = TomocubeImage(image_path).process()
+
+    elif "tomogram" in image_name.lower():
+        image_path = Path("image", "ht.tiff")
+        st.session_state["ht_image"] = TomocubeImage(image_path).process()
+
+    else:
+        raise ValueError("Invalid image name")

@@ -5,6 +5,13 @@ import streamlit as st
 import src.center_labeller_page as center_labeller_page
 import src.labelled_page as labelled_page
 import src.quality_labeller_page as quality_labeller_page
+from src.s3 import (
+    AWS_KEY,
+    AWS_PASSWORD,
+    S3Credential,
+    S3Downloader,
+    get_s3_bucket,
+)
 
 # TODO: downloader inject to each page
 

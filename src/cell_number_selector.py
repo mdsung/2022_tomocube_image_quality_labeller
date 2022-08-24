@@ -50,8 +50,8 @@ class FilterQualityCellNumberRenderer(FilterCellNumberRenderer):
                     (SELECT distinct(cell_id) FROM {self.project_name}_image WHERE image_id NOT IN (SELECT image_id FROM {self.project_name}_image_{self.label_type})) 
                 ORDER BY cell_number"""
 
-        logging.info(sql)
-        logging.info([data["cell_number"] for data in query_database(sql)])
+        logging.debug(sql)
+        logging.debug([data["cell_number"] for data in query_database(sql)])
 
         return return_selectbox_result(
             [data["cell_number"] for data in query_database(sql)]
@@ -70,8 +70,8 @@ class FilterCenterCellNumberRenderer(FilterCellNumberRenderer):
                     WHERE image_id NOT IN (SELECT image_id FROM {self.project_name}_image_{self.label_type})
                     AND image_type = 'HOLOTOMOGRAPHY') 
                 ORDER BY cell_number"""
-        logging.info(sql)
-        logging.info([data["cell_number"] for data in query_database(sql)])
+        logging.debug(sql)
+        logging.debug([data["cell_number"] for data in query_database(sql)])
         return return_selectbox_result(
             [data["cell_number"] for data in query_database(sql)]
         )

@@ -1,10 +1,16 @@
 import streamlit as st
 
 from src.cell_selector import render_cell_selector
-from src.gdrive import GDriveCredential, GDriveDownloader
 from src.image import TomocubeImage, download_image, get_images
 from src.quality import get_default_quality, save_quality
 from src.renderer import LabelProgressRenderer, TitleRenderer
+from src.s3 import (
+    AWS_KEY,
+    AWS_PASSWORD,
+    S3Credential,
+    S3Downloader,
+    get_s3_bucket,
+)
 from src.session import set_session_state
 
 
@@ -18,6 +24,8 @@ def render_image_quality(quality: int) -> None:
 
 
 def app():
+    label_type = "quality"
+
     set_session_state(
         "quality_filter_labeled",
         "quality_project_name",
@@ -37,13 +45,17 @@ def app():
         "mip_quality",
     )
 
-    downloader = GDriveDownloader(GDriveCredential().credentials)
     TitleRenderer("Tomocube Image Quality Labeller").render()
 
-    render_cell_selector(label_type="quality")
+    render_cell_selector(label_type=label_type)
 
-    if (st.session_state["quality_cell_type"] == "Not Available") | (
-        st.session_state["quality_cell_number"] == "Not Available"
+    project_name = st.session_state[f"{label_type}_project_name"]
+    credential = S3Credential(AWS_KEY, AWS_PASSWORD)
+    bucket = get_s3_bucket(credential, project_name.replace("_", "-"))
+    downloader = S3Downloader(bucket)
+
+    if (st.session_state[f"{label_type}_cell_type"] == "Not Available") | (
+        st.session_state[f"{label_type}_cell_number"] == "Not Available"
     ):
         st.write("Not Available images")
         st.write(
@@ -52,20 +64,18 @@ def app():
         return
 
     bf_cellimage, mip_cellimage, ht_cellimage = get_images(
-        st.session_state["quality_project_name"],
-        st.session_state["quality_patient_id"],
-        st.session_state["quality_cell_type"],
-        st.session_state["quality_cell_number"],
+        st.session_state[f"{label_type}_project_name"],
+        st.session_state[f"{label_type}_patient_id"],
+        st.session_state[f"{label_type}_cell_type"],
+        st.session_state[f"{label_type}_cell_number"],
     )
 
     if bf_cellimage != st.session_state["bf_image_meta"]:
         if bf_cellimage is not None:
             download_image(
                 downloader,
-                bf_cellimage.image_google_id,
-                "image",
-                "bf.tiff",
-                "bf_image",
+                bf_cellimage.patient_name,
+                bf_cellimage.image_name,
             )
             st.session_state["bf_image_meta"] = bf_cellimage
             get_default_quality(
@@ -79,11 +89,7 @@ def app():
     if mip_cellimage != st.session_state["mip_image_meta"]:
         if mip_cellimage is not None:
             download_image(
-                downloader,
-                mip_cellimage.image_google_id,
-                "image",
-                "mip.tiff",
-                "mip_image",
+                downloader, mip_cellimage.patient_name, mip_cellimage.image_name
             )
             st.session_state["mip_image_meta"] = mip_cellimage
             st.session_state["ht_image_meta_quality"] = ht_cellimage
