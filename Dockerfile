@@ -1,9 +1,9 @@
 #=============================================================================
 # Build environment
-FROM python:3.9.7-slim as build
+FROM --platform=linux/amd64 python:3.10.6-slim as build
 
 # Install Poetry
-RUN pip install --upgrade pip && pip install poetry==1.1.11
+RUN pip install --upgrade pip && pip install poetry==1.1.14
 RUN mkdir /code
 WORKDIR /code
 # Create Poetry environment
@@ -14,7 +14,7 @@ RUN POETRY_VIRTUALENVS_IN_PROJECT=true \
 
 # =============================================================================
 # Runtime environment
-FROM python:3.9.7-slim as runtime
+FROM --platform=linux/amd64 python:3.10.6-slim as runtime
 
 # Copy Poetry environment
 COPY --from=build /code/.venv /code/.venv
