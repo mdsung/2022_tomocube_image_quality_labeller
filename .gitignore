@@ -6,3 +6,4 @@ token.json
 credentials.json
 image/*.tiff
 .DS_Store
+/.vscode

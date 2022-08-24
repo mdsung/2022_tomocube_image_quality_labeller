@@ -23,7 +23,9 @@ def render_cell_selector(label_type):
         st.session_state[f"{label_type}_project_name"] = ProjectListRenderer(
             "Tomocube project"
         ).render()
-
+        logging.info(
+            f"Set tomocube project name to {st.session_state[f'{label_type}_project_name']}"
+        )
         st.session_state[f"{label_type}_patient_id"] = (
             PatientListRendererFactory()
             .get_renderer(

@@ -4,6 +4,7 @@
         "cellimage",
         "gdrive",
         "imread",
-        "ndarray"
+        "ndarray",
+        "pointobj"
     ]
 }

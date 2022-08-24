@@ -1,13 +1,15 @@
 import logging
-from dataclasses import dataclass
 
 import numpy as np
 import streamlit as st
-from streamlit_custom_image_labeller import st_custom_image_labeller
+from streamlit_custom_center_labeller.streamlit_custom_image_labeller import (
+    st_custom_image_labeller,
+)
 
 from src.cell_selector import render_cell_selector
-from src.database import Database, query_database
+from src.database import Database
 from src.image import TomocubeImage, download_image, get_images
+from src.point import Point, PointData
 from src.renderer import LabelProgressRenderer, TitleRenderer
 from src.s3 import (
     AWS_KEY,
@@ -19,71 +21,16 @@ from src.s3 import (
 from src.session import set_session_state
 
 
-@dataclass
-class Point:
-    x: int
-    y: int
-    z: int
-
-
 def set_default_point(
     project_name: str, image_id: int, image_size: tuple[int, int, int]
 ):
+    logging.info("===SET DEFAULT POINT===")
+    logging.info(project_name)
+    logging.info(image_id)
+    logging.info(image_size)
 
-    data = query_database(
-        f"SELECT image_id, x, y, z FROM {project_name}_image_center WHERE image_id = {image_id}"
-    )
-
-    default_point = Point(
-        image_size[1] // 2, image_size[2] // 2, image_size[0] // 2
-    )
-
-    x = data[0].get("x", default_point.x) if data != () else default_point.x
-    y = data[0].get("y", default_point.y) if data != () else default_point.y
-    z = data[0].get("z", default_point.z) if data != () else default_point.z
-
-    st.session_state["point"] = Point(x, y, z)
-
-
-def render_center_labeller(image: np.ndarray):
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.header("HT - XY")
-        logging.info(f"Render col1 - {st.session_state['point']}")
-        output = st_custom_image_labeller(
-            TomocubeImage.numpy_to_image(
-                TomocubeImage.slice_axis(
-                    image, idx=st.session_state["point"].z, axis=0
-                )
-            ),
-            point_color="red",
-            point=(
-                st.session_state["point"].y,
-                st.session_state["point"].x,
-            ),  # numpy array axis is not matching with mouse point axis
-        )
-        st.session_state["point"].y = output[
-            "x"
-        ]  # numpy array axis is not matching with mouse point axis
-        st.session_state["point"].x = output[
-            "y"
-        ]  # numpy array axis is not matching with mouse point axis
-
-    with col2:
-        st.header("HT - YZ")
-        logging.info(f"Render col2 - {st.session_state['point']}")
-        output2 = st_custom_image_labeller(
-            TomocubeImage.numpy_to_image(
-                TomocubeImage.slice_axis(
-                    image, idx=st.session_state["point"].y, axis=2
-                )
-            ),
-            point_color="red",
-            point=(st.session_state["point"].x, st.session_state["point"].z),
-        )
-
-        st.session_state["point"].z = output2["y"]
+    pointobj = Point(project_name, image_id, image_size)
+    st.session_state["point"] = pointobj.point
 
 
 def render_morphology_all_axis(image: np.ndarray) -> None:
@@ -114,14 +61,15 @@ def _render_each_axis(image: np.ndarray, axis: int) -> None:
     )
 
 
-def save_point(project_name):
+def save_point():
     _write_to_database(
-        project_name,
+        st.session_state["center_project_name"],
         st.session_state["ht_image_meta_center"].image_id,
         st.session_state["point"].x,
         st.session_state["point"].y,
         st.session_state["point"].z,
     )
+    st.session_state["point"] = None
 
 
 def _write_to_database(project_name, image_id, x, y, z):
@@ -136,8 +84,8 @@ def _write_to_database(project_name, image_id, x, y, z):
 
 def app():
     label_type = "center"
-
     st.session_state[f"{label_type}_filter_labeled"] = True
+
     set_session_state(
         f"{label_type}_project_name",
         f"{label_type}_patient_id",
@@ -147,13 +95,20 @@ def app():
         "ht_image_meta_center",
     )
 
-    TitleRenderer("Tomocube Image Quality Labeller").render()
+    if "output1" not in st.session_state:
+        st.session_state["output1"] = {}
+    if "output2" not in st.session_state:
+        st.session_state["output2"] = {}
+
+    TitleRenderer("Tomocube Image Center Labeller").render()
 
     render_cell_selector(label_type=label_type)  # type: ignore
 
-    project_name = st.session_state[f"{label_type}_project_name"]
     credential = S3Credential(AWS_KEY, AWS_PASSWORD)
-    bucket = get_s3_bucket(credential, project_name.replace("_", "-"))
+    bucket = get_s3_bucket(
+        credential,
+        st.session_state[f"{label_type}_project_name"].replace("_", "-"),
+    )
     downloader = S3Downloader(bucket)
 
     if (st.session_state[f"{label_type}_cell_type"] == "Not Available") | (
@@ -184,33 +139,119 @@ def app():
         else:
             st.session_state["ht_image_meta_center"] = None
 
-    if "point" not in st.session_state:
         set_default_point(
-            st.session_state["center_project_name"],
+            st.session_state[f"{label_type}_project_name"],
             st.session_state["ht_image_meta_center"].image_id,
             st.session_state["ht_image"].shape,
         )
 
-    logging.info(f"point - {st.session_state['point']}")
-    logging.info(
-        f"ht_image_meta_center - {st.session_state['ht_image_meta_center']}"
+        logging.info(f"point - {st.session_state['point']}")
+        logging.info(
+            f"ht_image_meta_center - {st.session_state['ht_image_meta_center']}"
+        )
+
+        logging.info("save xy_image")
+        st.session_state["xy_image"] = TomocubeImage.numpy_to_image(
+            TomocubeImage.slice_axis(
+                st.session_state["ht_image"],
+                idx=st.session_state["point"].z,
+                axis=0,
+            )
+        )
+
+        logging.info("save zx_image")
+        st.session_state["zx_image"] = TomocubeImage.numpy_to_image(
+            TomocubeImage.slice_axis(
+                st.session_state["ht_image"],
+                idx=st.session_state["point"].y,
+                axis=2,
+            )
+        )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        logging.info("render col1")
+        st.header("HT - XY")
+        output1 = st_custom_image_labeller(
+            st.session_state["xy_image"],
+            point=(
+                st.session_state["point"].y,
+                st.session_state["point"].x,
+            ),
+        )
+
+        if output1 != st.session_state["output1"]:
+            logging.info("Save output1")
+            st.session_state["output1"] = output1
+            logging.info(
+                f'Change Point to {PointData(output1["y"], output1["x"], st.session_state["point"].z)}'
+            )
+            st.session_state["point"] = PointData(
+                output1["y"],
+                output1["x"],
+                st.session_state["point"].z,
+            )
+            st.session_state["zx_image"] = TomocubeImage.numpy_to_image(
+                TomocubeImage.slice_axis(
+                    st.session_state["ht_image"],
+                    idx=st.session_state["point"].y,
+                    axis=2,
+                )
+            )
+
+    with col2:
+        logging.info("render col2")
+        st.header("HT - ZX")
+        output2 = st_custom_image_labeller(
+            st.session_state["zx_image"],
+            point=(
+                st.session_state["point"].x,
+                st.session_state["point"].z,
+            ),
+        )
+        if output2 != st.session_state["output2"]:
+            logging.info("Save output2")
+            st.session_state["output2"] = output2
+            logging.info(
+                f'Change Point to {PointData(st.session_state["point"].x, st.session_state["point"].y, output2["y"])}'
+            )
+            st.session_state["point"] = PointData(
+                output2["x"],
+                st.session_state["point"].y,
+                output2["y"],
+            )
+
+            st.session_state["xy_image"] = TomocubeImage.numpy_to_image(
+                TomocubeImage.slice_axis(
+                    st.session_state["ht_image"],
+                    idx=st.session_state["point"].z,
+                    axis=0,
+                )
+            )
+            st.experimental_rerun()
+
+    logging.info("Write Coordinate")
+    if st.session_state["isSaved"]:
+        st.success("Saved Point")
+    elif not st.session_state["isSaved"]:
+        st.warning("Not Saved Point")
+    st.write(
+        f"The coordinates of center point: ({st.session_state['point'].x}, {st.session_state['point'].y}, {st.session_state['point'].z})"
     )
-    render_center_labeller(st.session_state["ht_image"])
 
-    # st.write(
-    #     f"The coordinates of center point: ({st.session_state['point'].x}, {st.session_state['point'].y}, {st.session_state['point'].z})"
-    # )
+    st.button(
+        "Save Point",
+        on_click=save_point,
+    )
 
-    # st.button(
-    #     "Save Point",
-    #     on_click=save_point,
-    #     args=(st.session_state["center_project_name"],),
-    # )
+    if st.checkbox("Show all axis", value=False):
+        render_morphology_all_axis(st.session_state["ht_image"])
 
-    # if st.checkbox("Show all axis", value=False):
-    #     render_morphology_all_axis(st.session_state["ht_image"])
+    with st.sidebar:
+        LabelProgressRenderer(
+            st.session_state[f"{label_type}_project_name"], label_type
+        ).render()
 
-    # with st.sidebar:
-    #     LabelProgressRenderer(
-    #         st.session_state["center_project_name"], "center"
-    #     ).render()
+
+if __name__ == "__main__":
+    app()

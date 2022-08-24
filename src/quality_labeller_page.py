@@ -1,5 +1,4 @@
 import streamlit as st
-
 from src.cell_selector import render_cell_selector
 from src.image import TomocubeImage, download_image, get_images
 from src.quality import get_default_quality, save_quality
@@ -12,7 +11,7 @@ from src.s3 import (
     get_s3_bucket,
 )
 from src.session import set_session_state
-
+import logging
 
 def render_image_quality(quality: int) -> None:
     if quality == 0:
@@ -72,6 +71,7 @@ def app():
 
     if bf_cellimage != st.session_state["bf_image_meta"]:
         if bf_cellimage is not None:
+            logging.info("Download image")
             download_image(
                 downloader,
                 bf_cellimage.patient_name,
